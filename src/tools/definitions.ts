@@ -59,6 +59,8 @@ export const toolDefinitions: ToolDefinition[] = [
     outputSchema: {
       type: 'object',
       properties: {
+        response: { type: 'string' },
+        sessionId: { type: 'string' },
         threadId: { type: 'string' },
       },
     },

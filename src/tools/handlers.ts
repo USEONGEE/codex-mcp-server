@@ -198,6 +198,8 @@ ${result.stdout || ''}`.trim();
           },
         ],
         structuredContent: {
+          response,
+          ...(activeSessionId && { sessionId: activeSessionId }),
           ...(threadId && { threadId }),
         },
         _meta: {
@@ -324,6 +326,7 @@ export class ListSessionsToolHandler {
         createdAt: session.createdAt.toISOString(),
         lastAccessedAt: session.lastAccessedAt.toISOString(),
         turnCount: session.turns.length,
+        codexConversationId: session.codexConversationId || null,
       }));
 
       return {
