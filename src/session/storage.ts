@@ -34,7 +34,7 @@ export class InMemorySessionStorage implements SessionStorage {
   private readonly maxSessions = 100;
   private readonly sessionTtl = 24 * 60 * 60 * 1000; // 24 hours
   private readonly maxSessionIdLength = 256;
-  private readonly sessionIdPattern = /^[a-zA-Z0-9_-]+$/;
+  private readonly sessionIdPattern = /^[^\x00-\x1f\x7f]+$/;
 
   createSession(): string {
     this.cleanupExpiredSessions();
@@ -63,7 +63,7 @@ export class InMemorySessionStorage implements SessionStorage {
     ) {
       throw new ValidationError(
         TOOLS.CODEX,
-        'Session ID must be 1-256 characters and contain only letters, numbers, hyphens, and underscores'
+        'Session ID must not contain control characters'
       );
     }
 
