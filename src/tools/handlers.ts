@@ -86,8 +86,13 @@ export class CodexToolHandler {
 
       if (useResume && codexConversationId) {
         // Resume mode: codex exec resume has limited flags
-        // All exec options (--skip-git-repo-check, -c) must come BEFORE 'resume' subcommand
+        // All exec options (--skip-git-repo-check, -C, -c) must come BEFORE 'resume' subcommand
         cmdArgs = ['-a', 'never', 'exec', '--skip-git-repo-check'];
+
+        // Add working directory (before subcommand, like other exec options)
+        if (workingDirectory) {
+          cmdArgs.push('-C', workingDirectory);
+        }
 
         // Model must be set via -c config in resume mode (before subcommand)
         cmdArgs.push('-c', `model="${selectedModel}"`);
