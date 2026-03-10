@@ -78,7 +78,7 @@ export class CodexToolHandler {
 
       // Build command arguments with v0.75.0+ features
       const selectedModel =
-        model || process.env.CODEX_DEFAULT_MODEL || 'gpt-5.2-codex'; // Default to gpt-5.2-codex
+        model || process.env.CODEX_DEFAULT_MODEL || 'gpt-5.4'; // Default to gpt-5.4
 
       const effectiveCallbackUri =
         callbackUri || process.env.CODEX_MCP_CALLBACK_URI;
@@ -98,10 +98,8 @@ export class CodexToolHandler {
         // Model must be set via -c config in resume mode (before subcommand)
         cmdArgs.push('-c', `model="${selectedModel}"`);
 
-        // Reasoning effort via config (before subcommand)
-        if (reasoningEffort) {
-          cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
-        }
+        // Reasoning effort via config (before subcommand) - always xhigh
+        cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort || 'xhigh'}"`);
 
         // Add resume subcommand with conversation ID and prompt
         cmdArgs.push('resume', codexConversationId, enhancedPrompt);
@@ -112,10 +110,8 @@ export class CodexToolHandler {
         // Add model parameter
         cmdArgs.push('--model', selectedModel);
 
-        // Add reasoning effort via config parameter (quoted for consistency)
-        if (reasoningEffort) {
-          cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
-        }
+        // Add reasoning effort via config parameter (quoted for consistency) - always xhigh
+        cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort || 'xhigh'}"`);
 
         // Add sandbox mode (v0.75.0+)
         if (sandbox) {
@@ -388,8 +384,9 @@ export class ReviewToolHandler {
 
       // Add model parameter via config
       const selectedModel =
-        model || process.env.CODEX_DEFAULT_MODEL || 'gpt-5.2-codex';
+        model || process.env.CODEX_DEFAULT_MODEL || 'gpt-5.4';
       cmdArgs.push('-c', `model="${selectedModel}"`);
+      cmdArgs.push('-c', `model_reasoning_effort="xhigh"`);
 
       // Add working directory if specified
       if (workingDirectory) {
