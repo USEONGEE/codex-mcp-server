@@ -24,6 +24,10 @@ const isWindows = process.platform === 'win32';
 // Maximum buffer size (10MB) to prevent memory exhaustion from noisy processes
 const MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 
+// Grace period (ms) after 'exit' event before force-resolving if 'close' hasn't fired.
+// This prevents infinite hangs when child/grandchild processes keep stdio streams open.
+const EXIT_GRACE_PERIOD_MS = 1000;
+
 export type ProgressCallback = (message: string) => void;
 
 export interface StreamingCommandOptions {
@@ -52,6 +56,35 @@ export async function executeCommand(
     let stderr = '';
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let resolved = false;
+
+    const doResolve = (code: number | null) => {
+      if (resolved) return;
+      resolved = true;
+
+      if (stderr) {
+        console.error(chalk.yellow('Command stderr:'), stderr);
+      }
+
+      // Accept exit code 0 or if we got stdout/stderr output
+      // Note: codex CLI writes most output to stderr, so we must check both
+      if (code === 0 || stdout || stderr) {
+        if (code !== 0 && (stdout || stderr)) {
+          console.error(
+            chalk.yellow('Command failed but produced output, using output')
+          );
+        }
+        resolve({ stdout, stderr });
+      } else {
+        reject(
+          new CommandExecutionError(
+            [file, ...args].join(' '),
+            `Command failed with exit code ${code}`,
+            new Error(stderr || 'Unknown error')
+          )
+        );
+      }
+    };
 
     child.stdout.on('data', (data: Buffer) => {
       if (!stdoutTruncated) {
@@ -79,32 +112,30 @@ export async function executeCommand(
       }
     });
 
+    // 'close' fires when process exits AND all stdio streams are closed.
+    // This is the ideal event, but it can hang if child/grandchild processes
+    // keep stdio streams open after the main process exits.
     child.on('close', (code) => {
-      if (stderr) {
-        console.error(chalk.yellow('Command stderr:'), stderr);
-      }
+      doResolve(code);
+    });
 
-      // Accept exit code 0 or if we got stdout/stderr output
-      // Note: codex CLI writes most output to stderr, so we must check both
-      if (code === 0 || stdout || stderr) {
-        if (code !== 0 && (stdout || stderr)) {
+    // 'exit' fires when the process exits, even if stdio streams are still open.
+    // Use this as a fallback: if 'close' doesn't fire within a grace period
+    // after 'exit', resolve anyway with whatever output we have.
+    child.on('exit', (code) => {
+      setTimeout(() => {
+        if (!resolved) {
           console.error(
-            chalk.yellow('Command failed but produced output, using output')
+            chalk.yellow('Process exited but streams still open, resolving with available output')
           );
+          doResolve(code);
         }
-        resolve({ stdout, stderr });
-      } else {
-        reject(
-          new CommandExecutionError(
-            [file, ...args].join(' '),
-            `Command failed with exit code ${code}`,
-            new Error(stderr || 'Unknown error')
-          )
-        );
-      }
+      }, EXIT_GRACE_PERIOD_MS);
     });
 
     child.on('error', (error) => {
+      if (resolved) return;
+      resolved = true;
       reject(
         new CommandExecutionError(
           [file, ...args].join(' '),
@@ -151,6 +182,7 @@ export async function executeCommandStreaming(
     let stderr = '';
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let resolved = false;
     let lastProgressTime = 0;
     const PROGRESS_DEBOUNCE_MS = 100; // Debounce progress updates
 
@@ -162,6 +194,40 @@ export async function executeCommandStreaming(
       if (now - lastProgressTime >= PROGRESS_DEBOUNCE_MS) {
         options.onProgress(message);
         lastProgressTime = now;
+      }
+    };
+
+    const doResolve = (code: number | null) => {
+      if (resolved) return;
+      resolved = true;
+
+      // Send final progress if there's any remaining output
+      if (options.onProgress && (stdout || stderr)) {
+        const finalOutput = stdout || stderr;
+        const lastChunk = finalOutput.slice(-500); // Last 500 chars
+        if (lastChunk.trim()) {
+          options.onProgress(
+            `[Completed] ${lastChunk.trim().slice(0, 200)}...`
+          );
+        }
+      }
+
+      if (code === 0 || stdout || stderr) {
+        // Success or we have output (treat as success like the original)
+        if (code !== 0 && (stdout || stderr)) {
+          console.error(
+            chalk.yellow('Command failed but produced output, using output')
+          );
+        }
+        resolve({ stdout, stderr });
+      } else {
+        reject(
+          new CommandExecutionError(
+            [file, ...args].join(' '),
+            `Command exited with code ${code}`,
+            new Error(`Exit code: ${code}`)
+          )
+        );
       }
     };
 
@@ -195,37 +261,24 @@ export async function executeCommandStreaming(
     });
 
     child.on('close', (code) => {
-      // Send final progress if there's any remaining output
-      if (options.onProgress && (stdout || stderr)) {
-        const finalOutput = stdout || stderr;
-        const lastChunk = finalOutput.slice(-500); // Last 500 chars
-        if (lastChunk.trim()) {
-          options.onProgress(
-            `[Completed] ${lastChunk.trim().slice(0, 200)}...`
-          );
-        }
-      }
+      doResolve(code);
+    });
 
-      if (code === 0 || stdout || stderr) {
-        // Success or we have output (treat as success like the original)
-        if (code !== 0 && (stdout || stderr)) {
+    // Fallback: if 'close' doesn't fire after process exits, resolve anyway
+    child.on('exit', (code) => {
+      setTimeout(() => {
+        if (!resolved) {
           console.error(
-            chalk.yellow('Command failed but produced output, using output')
+            chalk.yellow('Process exited but streams still open, resolving with available output')
           );
+          doResolve(code);
         }
-        resolve({ stdout, stderr });
-      } else {
-        reject(
-          new CommandExecutionError(
-            [file, ...args].join(' '),
-            `Command exited with code ${code}`,
-            new Error(`Exit code: ${code}`)
-          )
-        );
-      }
+      }, EXIT_GRACE_PERIOD_MS);
     });
 
     child.on('error', (error) => {
+      if (resolved) return;
+      resolved = true;
       reject(
         new CommandExecutionError(
           [file, ...args].join(' '),
